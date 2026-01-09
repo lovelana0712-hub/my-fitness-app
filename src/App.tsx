@@ -13,9 +13,9 @@ import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 // --- [1. 全域配置] ---
  
-// 🔥🔥🔥 請在此填入 Google AI Studio 的 API Key (建議申請新專案的 Key) 🔥🔥🔥
-// 申請網址：https://aistudio.google.com/app/apikey
-const GEMINI_API_KEY = "AIzaSyA5QUXDQ99Eso6b4jDM2PfTKauvwMJ54T4"; 
+// 🔥🔥🔥 [修改處] 這裡改成讀取環境變數，請勿再將 Key 直接貼在這裡 🔥🔥🔥
+// 請確認 Netlify 後台的變數名稱設定為: VITE_GOOGLE_API_KEY
+const GEMINI_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || ""; 
 
 const GLOBAL_STYLE = `
   @keyframes dot-flash-red {
@@ -25,7 +25,7 @@ const GLOBAL_STYLE = `
   }
   .animate-trend-warning { animation: dot-flash-red 1s infinite ease-in-out; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
-  
+   
   /* 隱藏數字輸入框箭頭 */
   input::-webkit-outer-spin-button,
   input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -327,7 +327,7 @@ const ExerciseLibraryModal = ({ isOpen, onClose, data, onUpdate }: any) => {
     <div className="fixed inset-0 bg-black/70 z-[110000] flex items-center justify-center p-4 backdrop-blur-md">
       <ConfirmationModal isOpen={!!confirmConfig} message={confirmConfig?.message} onConfirm={confirmConfig?.onConfirm} onCancel={()=>setConfirmConfig(null)} />
       <VideoPlayerModal isOpen={videoModal.open} onClose={()=>setVideoModal({...videoModal, open:false})} videoUrl={videoModal.url} title={videoModal.title} />
-      
+       
       <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-6 shadow-2xl flex flex-col max-h-[85vh]">
         <div className="flex justify-between items-center mb-6 font-black text-xl text-indigo-600">
           <h3 className="flex items-center gap-2"><BookOpen/> 動作庫維護</h3>
@@ -400,7 +400,7 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
 
   const handleAskAI = async () => {
     if (!GEMINI_API_KEY) { 
-      alert("請填寫 API Key：\n1. 請到 https://aistudio.google.com/app/apikey\n2. 點擊 Create API key\n3. 選擇 'Create API key in new project'\n4. 複製 Key 並填入程式碼最上方"); 
+      alert("API Key 未設定！\n請前往 Netlify 後台 > Site configuration > Environment variables\n新增變數: VITE_GOOGLE_API_KEY\n並重新部署網站。"); 
       return; 
     }
     setIsAiLoading(true);
@@ -414,11 +414,11 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
     [目標] ${goal}
     [近期體重變化]
     ${recentLogs}
-    
+     
     請用繁體中文回答，包含：
     1. 【目前評語】：分析進度與狀況。
     2. 【後續建議】：給出飲食或訓練的具體調整方向。
-    總字數請控制在 200 字以內，語氣專業且鼓勵。`;
+    3. 總字數請控制在 200 字以內，語氣專業且鼓勵。`;
 
     const callGemini = async (model: string) => {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
@@ -500,10 +500,10 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
           <div key={e.id} className="relative aspect-[3/4] rounded-3xl overflow-hidden shadow-md group bg-slate-200">
             {/* [修正] 圖片顯示優先順序：有照片顯示照片，無照片但有 InBody 顯示 InBody */}
             <img src={e.photo || e.inbodyPhoto} className="w-full h-full object-cover" />
-            
+             
             {/* 提示：如果顯示的是 InBody，或是該日有 InBody 數據，顯示小圖示 */}
             {e.inbodyPhoto && <div className="absolute top-2 right-2 bg-blue-500 text-white p-1 rounded-lg shadow-sm"><FileText size={12}/></div>}
-            
+             
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end p-4">
               <div className="text-[10px] text-white/70">{e.date}</div>
               <div className="flex items-end justify-between text-white">
@@ -566,7 +566,7 @@ const BodyMetricsView = ({ data, onUpdate }: any) => {
 
   const CustomDotActual = (props: any) => { const { cx, cy, payload } = props; return <circle cx={cx} cy={cy} r={3} fill={payload.isActualRisingTwice ? "#ef4444" : "#94a3b8"} className={payload.isActualRisingTwice ? "animate-trend-warning" : ""} stroke="#fff" strokeWidth={1} />; };
   const CustomDotAvg = (props: any) => { const { cx, cy, payload } = props; return <circle cx={cx} cy={cy} r={4} fill={payload.isAvgIncreasing ? "#ef4444" : "#1a9478"} className={payload.isAvgIncreasing ? "animate-trend-warning" : ""} stroke="#fff" strokeWidth={2} />; };
-  
+   
   const handleSave = () => { 
     if(!weight)return; 
     onUpdate({
@@ -597,7 +597,7 @@ const BodyMetricsView = ({ data, onUpdate }: any) => {
       <UserProfileModal isOpen={isProfileOpen} onClose={()=>setIsProfileOpen(false)} data={data} onUpdate={onUpdate} />
       <ConfirmationModal isOpen={!!confirmConfig} message={confirmConfig?.message} onConfirm={confirmConfig?.onConfirm} onCancel={()=>setConfirmConfig(null)} />
       <DatePickerModal isOpen={showDateModal} onClose={()=>setShowDateModal(false)} currentDate={date} onSelect={setDate} />
-      
+       
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         {/* 目標設定區塊 */}
         <div className="bg-white p-6 rounded-[1.5rem] shadow-sm md:col-span-2 border relative">
@@ -652,7 +652,7 @@ const BodyMetricsView = ({ data, onUpdate }: any) => {
 
         <div className="bg-[#1a9478] p-8 rounded-[1.5rem] shadow-lg md:col-span-3 text-white flex flex-col justify-between relative overflow-hidden"><div className="absolute top-4 left-4 opacity-20"><Scale size={24}/></div><div><h3 className="text-sm font-bold opacity-80 mb-4 uppercase tracking-tighter">最新數據</h3><div className="flex items-baseline gap-2"><span className="text-6xl font-black">{chartData[chartData.length-1]?.weight || '--'}</span><span className="text-xl font-bold">kg</span></div></div><div className="self-end text-right"><div className="text-xs opacity-70 font-bold mb-1">7日平均</div><div className="text-3xl font-black">{chartData[chartData.length-1]?.avgWeight || '--'} kg</div></div></div>
       </div>
-      
+       
       <div className="bg-white p-6 rounded-[1.5rem] shadow-sm border">
         <h2 className="font-black mb-6 flex items-center gap-2"><PlusCircle className="text-teal-600"/> 記錄今日體重</h2>
         <div className="flex flex-col md:flex-row gap-4">
@@ -688,7 +688,7 @@ const BodyMetricsView = ({ data, onUpdate }: any) => {
           </LineChart>
         </ResponsiveContainer>
       </div>
-      
+       
       <div className="bg-white rounded-[1.5rem] shadow-sm border border-slate-100 overflow-hidden"><div className="p-5 border-b bg-slate-50/50 flex justify-between font-black text-slate-700"><h3>歷史紀錄 (點選修改)</h3></div><div className="max-h-[400px] overflow-y-auto divide-y divide-slate-50 no-scrollbar">{[...data.entries].sort((a,b)=>b.date.localeCompare(a.date)).map((e:any)=>(
         <div key={e.id} className={`p-4 transition-all ${editingId === e.id ? 'bg-indigo-50/50 shadow-inner' : 'hover:bg-slate-50'}`}>
           {editingId === e.id ? (
@@ -729,7 +729,7 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
   const [isCopy, setIsCopy] = useState(false); 
   const [showDateModal, setShowDateModal] = useState(false); 
   const [videoModal, setVideoModal] = useState<{open:boolean, url:string, title:string}>({open:false, url:'', title:''}); 
-  
+   
   const [muscle, setMuscle] = useState<string>('胸'); 
   const [exId, setExId] = useState('');
   const [newName, setNewName] = useState('');
@@ -738,7 +738,7 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
   const [newGym, setNewGym] = useState('');
   const [newPhoto, setNewPhoto] = useState<string|undefined>();
   const [newVideo, setNewVideo] = useState('');
-  
+   
   const [confirmConfig, setConfirmConfig] = useState<any>(null); 
 
   const currentPlan = localPlan || data.dailyPlans?.[date] || '';
@@ -817,7 +817,7 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
       <ConfirmationModal isOpen={!!confirmConfig} message={confirmConfig?.message} onConfirm={confirmConfig?.onConfirm} onCancel={()=>setConfirmConfig(null)} />
       <DatePickerModal isOpen={showDateModal} onClose={()=>setShowDateModal(false)} currentDate={date} onSelect={setDate} />
       <VideoPlayerModal isOpen={videoModal.open} onClose={()=>setVideoModal({...videoModal, open:false})} videoUrl={videoModal.url} title={videoModal.title} />
-      
+       
       <RestTimerModal isOpen={isTimerOpen} onClose={()=>setIsTimerOpen(false)} />
       <CopyWorkoutModal isOpen={isCopy} onClose={()=>setIsCopy(false)} data={data} onCopy={handleCopyHistory} />
       <PlanManageModal isOpen={isManagePlan} onClose={()=>setIsManagePlan(false)} data={data} onUpdate={onUpdate} />
@@ -827,7 +827,7 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
         <button onClick={()=>setShowDateModal(true)} className="flex items-center gap-2 text-slate-700 font-black"><CalendarIcon size={20} className="text-slate-400"/> {date}</button>
         {currentPlan && <button onClick={()=>{setLocalPlan(''); onUpdate({...data, dailyPlans:{...data.dailyPlans,[date]:''}});}} className="text-xs bg-red-50 text-red-600 px-4 py-2 rounded-full font-black">清空計畫</button>}
       </div>
-      
+       
       {!currentPlan ? (
         <div className="bg-white p-10 rounded-[2.5rem] border-2 border-dashed border-slate-200 text-center space-y-6 flex-1 flex flex-col justify-center">
           <div className="space-y-2"><h3 className="text-2xl font-black text-slate-800 tracking-tighter">選擇今日計畫</h3></div>
@@ -890,7 +890,7 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
                     </SwipeableRow>
                   </div>
                 ))}
-                
+                 
                 {/* [修正] 加一組按鈕邏輯：自動帶入上一組的數據 */}
                 <button onClick={()=>{
                   const currentExLogs = todaysLogs.filter((l:any) => l.exerciseId === ex.id);
@@ -1057,7 +1057,7 @@ const BodyGoalPro = () => {
   const [userData, setUserData] = useState<any>(DEFAULT_DATA);
   const [activeTab, setActiveTab] = useState<'body' | 'log' | 'analysis' | 'strength_analysis'>('body');
   const [confirmConfig, setConfirmConfig] = useState<any>(null); 
-  
+   
   const [manageExId, setManageExId] = useState<string | null>(null);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -1089,13 +1089,13 @@ const BodyGoalPro = () => {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 selection:bg-indigo-100">
       <style>{GLOBAL_STYLE}</style>
-      
+       
       <UserProfileModal isOpen={isProfileOpen} onClose={()=>setIsProfileOpen(false)} data={userData} onUpdate={updateData} />
       <ConfirmationModal isOpen={!!confirmConfig} message={confirmConfig?.message} onConfirm={confirmConfig?.onConfirm} onCancel={()=>setConfirmConfig(null)} />
       <DataTransferModal isOpen={isExportOpen} type="export" data={userData} onClose={()=>setIsExportOpen(false)} />
       <DataTransferModal isOpen={isImportOpen} type="import" onImport={updateData} onClose={()=>setIsImportOpen(false)} />
       <HistoryManagementModal isOpen={!!manageExId} targetId={manageExId} onClose={()=>setManageExId(null)} data={userData} onUpdate={updateData} />
-      
+       
       <header className="bg-white p-4 sticky top-0 z-50 shadow-sm border-b flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-200"><Activity size={20}/></div>
