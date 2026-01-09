@@ -5,7 +5,7 @@ import {
   AlertCircle, Loader2, RefreshCw, Upload, Cloud, Camera, Image as ImageIcon, 
   Calendar as CalendarIcon, LineChart as ChartIcon, ClipboardList, PlusCircle, 
   History, ChevronLeft, ChevronRight, BookOpen, Eye, EyeOff, Search, ChevronDown, 
-  Database, Timer, CheckCircle, Volume2, VolumeX, Music, Save, XCircle, LogOut, User, MapPin, Wrench, AlertTriangle, ArrowRightLeft, Video, ExternalLink, Play, Utensils, Flame, FileText, Sparkles, MessageSquareQuote, Bot, Clock
+  Database, Timer, CheckCircle, Volume2, VolumeX, Music, Save, XCircle, LogOut, User, MapPin, Wrench, AlertTriangle, ArrowRightLeft, Video, ExternalLink, Play, Utensils, Flame, FileText, Sparkles, MessageSquare, Bot, Clock
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
@@ -13,7 +13,7 @@ import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 // --- [1. 全域配置] ---
 
-// 🔥🔥🔥 請務必填入從 Google AI Studio 申請的 "新專案" API Key 🔥🔥🔥
+// 🔥🔥🔥 請在此填入 Google AI Studio 的 API Key (建議申請新專案的 Key) 🔥🔥🔥
 // 申請網址：https://aistudio.google.com/app/apikey
 const GEMINI_API_KEY = "AIzaSyCB47oDJG2WAyHpSP8Uk5n43Jep4LK09wA"; 
 
@@ -400,7 +400,7 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
 
   const handleAskAI = async () => {
     if (!GEMINI_API_KEY) { 
-      alert("請填寫 API Key：\n1. 請到 https://aistudio.google.com/app/apikey\n2. 點擊 Create API key\n3. 複製 Key 並填入程式碼最上方"); 
+      alert("請填寫 API Key：\n1. 請到 https://aistudio.google.com/app/apikey\n2. 點擊 Create API key\n3. 選擇 'Create API key in new project'\n4. 複製 Key 並填入程式碼最上方"); 
       return; 
     }
     setIsAiLoading(true);
@@ -420,7 +420,6 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
     2. 【後續建議】：給出飲食或訓練的具體調整方向。
     總字數請控制在 200 字以內，語氣專業且鼓勵。`;
 
-    // 自動切換模型
     const callGemini = async (model: string) => {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
           method: 'POST',
@@ -434,6 +433,7 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
     try {
       let result;
       try {
+        // [修正] 先嘗試最新模型，若 404 則降級到 gemini-pro
         result = await callGemini('gemini-1.5-flash');
       } catch (e: any) {
         if (e.message === '404') {
@@ -457,7 +457,7 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
     } catch (error: any) {
       console.error(error);
       if (error.message === '404') {
-        alert("API Error 404: 您的專案未啟用 AI 服務。\n請確保您使用的是 Google AI Studio 申請的 Key (非 Firebase Key)。");
+        alert("API Error 404: 您的 API Key 無效或未啟用 AI 服務。\n請務必到 Google AI Studio 申請一個 '新專案' 的 Key。");
       } else {
         alert(`AI 分析失敗 (${error.message})，請檢查 API Key 或網路連線。`);
       }
@@ -482,7 +482,7 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
         <div className="relative z-10">
           <div className="flex justify-between items-start mb-4">
             <div><h3 className="font-black text-2xl flex items-center gap-2"><Sparkles className="text-yellow-300 animate-pulse"/> AI 體態管理師</h3><p className="text-indigo-200 text-xs font-bold mt-1">基於您的數據提供專業分析</p></div>
-            <button onClick={handleAskAI} disabled={isAiLoading} className="bg-white text-indigo-600 px-5 py-2 rounded-xl font-black text-xs shadow-lg active:scale-95 transition-all flex items-center gap-2">{isAiLoading ? <Loader2 className="animate-spin"/> : <MessageSquareQuote size={16}/>} {isAiLoading ? '分析中...' : '諮詢建議'}</button>
+            <button onClick={handleAskAI} disabled={isAiLoading} className="bg-white text-indigo-600 px-5 py-2 rounded-xl font-black text-xs shadow-lg active:scale-95 transition-all flex items-center gap-2">{isAiLoading ? <Loader2 className="animate-spin"/> : <MessageSquare size={16}/>} {isAiLoading ? '分析中...' : '諮詢建議'}</button>
           </div>
           {latestAdvice ? (
             <div className="bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/20">
