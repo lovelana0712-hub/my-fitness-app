@@ -12,7 +12,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, sig
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 // --- [1. 全域配置] ---
-
+ 
 // 🔥🔥🔥 請在此填入 Google AI Studio 的 API Key (建議申請新專案的 Key) 🔥🔥🔥
 // 申請網址：https://aistudio.google.com/app/apikey
 const GEMINI_API_KEY = "AIzaSyA5QUXDQ99Eso6b4jDM2PfTKauvwMJ54T4"; 
