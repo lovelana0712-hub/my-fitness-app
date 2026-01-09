@@ -434,7 +434,7 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
       let result;
       try {
         // [修正] 先嘗試最新模型，若 404 則降級到 gemini-pro
-        result = await callGemini('gemini-2.0-flash');
+        result = await callGemini('gemini-flash-latest');
       } catch (e: any) {
         if (e.message === '404') {
           console.warn('Gemini 1.5 Flash not found, switching to Gemini Pro...');
