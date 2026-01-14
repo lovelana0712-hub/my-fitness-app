@@ -5,17 +5,16 @@ import {
   AlertCircle, Loader2, RefreshCw, Upload, Cloud, Camera, Image as ImageIcon, 
   Calendar as CalendarIcon, LineChart as ChartIcon, ClipboardList, PlusCircle, 
   History, ChevronLeft, ChevronRight, BookOpen, Eye, EyeOff, Search, ChevronDown, 
-  Database, Timer, CheckCircle, Volume2, VolumeX, Music, Save, XCircle, LogOut, User, MapPin, Wrench, AlertTriangle, ArrowRightLeft, Video, ExternalLink, Play, Utensils, Flame, FileText, Sparkles, MessageSquare, Bot, Clock
+  Database, Timer, CheckCircle, Volume2, VolumeX, Music, Save, XCircle, LogOut, User, MapPin, Wrench, AlertTriangle, ArrowRightLeft, Video, ExternalLink, Play, Utensils, Flame, FileText, Sparkles, MessageSquare, Bot, Clock, ZoomIn, Move, MousePointer2, Settings, Minimize, Maximize
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 // --- [1. 全域配置] ---
- 
-// 🔥🔥🔥 [修改處] 這裡改成讀取環境變數，請勿再將 Key 直接貼在這裡 🔥🔥🔥
-// 請確認 Netlify 後台的變數名稱設定為: VITE_GOOGLE_API_KEY
-const GEMINI_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || ""; 
+
+// 🔥🔥🔥 請在此填入您的 Google AI Studio API Key 🔥🔥🔥
+const GEMINI_API_KEY = ""; 
 
 const GLOBAL_STYLE = `
   @keyframes dot-flash-red {
@@ -25,11 +24,16 @@ const GLOBAL_STYLE = `
   }
   .animate-trend-warning { animation: dot-flash-red 1s infinite ease-in-out; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
-   
-  /* 隱藏數字輸入框箭頭 */
+  
   input::-webkit-outer-spin-button,
   input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   input[type=number] { -moz-appearance: textfield; }
+
+  .crop-container {
+    background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+  }
 `;
 
 const firebaseConfig = { 
@@ -52,7 +56,7 @@ const TRAIN_MODES = ['次數', '秒數', '趟數'];
 
 const DEFAULT_DATA = { 
   goals: { targetWeight: 66, targetBodyFat: 14, targetCalories: 2000, targetDate: '2026-12-31' },
-  profile: { birthday: '1995-01-01', gender: 'male', height: 175, activity: 'moderate', diet: 'none' },
+  profile: { birthday: '1995-01-01', gender: 'male', height: 175, activity: 'moderate', diet: 'none', avatar: '' },
   entries: [], exercises: [], logs: [], dailyPlans: {}, aiAdvice: [],
   planTemplates: ['胸日', '背日', '腿日', '肩日'] 
 };
@@ -69,12 +73,12 @@ const compressImage = (file: File): Promise<string> => new Promise((res) => {
   reader.onload = (ev) => {
     const img = new Image(); img.src = ev.target?.result as string;
     img.onload = () => {
-      const cvs = document.createElement('canvas'); const MAX = 800;
+      const cvs = document.createElement('canvas'); const MAX = 1600; 
       let w = img.width, h = img.height;
       if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } } else { if (h > MAX) { w *= MAX / h; h = MAX; } }
       cvs.width = w; cvs.height = h;
       cvs.getContext('2d')?.drawImage(img, 0, 0, w, h);
-      res(cvs.toDataURL('image/jpeg', 0.6));
+      res(cvs.toDataURL('image/jpeg', 0.9));
     };
   };
 });
@@ -86,10 +90,231 @@ const getYoutubeId = (url: string) => {
   return (match && match[2].length === 11) ? match[2] : null;
 };
 
+// --- [2.5 新增組件：智慧型圖片裁切器] ---
+const ImageCropper = ({ imageUrl, onCrop, onCancel, cropShape = 'circle' }: { imageUrl: string, onCrop: any, onCancel: any, cropShape?: 'circle' | 'rect' }) => {
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [imgElement, setImgElement] = useState<HTMLImageElement | null>(null);
+  
+  const interactionRef = useRef({
+    mode: null as 'move' | 'pinch' | null,
+    startDist: 0,
+    startScale: 1,
+    startPos: { x: 0, y: 0 },
+    startTouch: { x: 0, y: 0 }
+  });
+
+  useEffect(() => {
+    const i = new Image();
+    i.src = imageUrl;
+    i.onload = () => {
+        setImgElement(i);
+        fitImage(i); 
+    };
+  }, [imageUrl]);
+
+  const fitImage = (img: HTMLImageElement) => {
+    const viewportW = cropShape === 'circle' ? 256 : 300; 
+    const viewportH = cropShape === 'circle' ? 256 : 225; // 4:3 ratio
+    const scaleX = viewportW / img.width;
+    const scaleY = viewportH / img.height;
+    const fitScale = Math.min(scaleX, scaleY);
+    setScale(fitScale < 1 ? fitScale : 1);
+    setPosition({x: 0, y: 0});
+  };
+
+  const getDistance = (touches: React.TouchList) => {
+    return Math.hypot(
+      touches[0].clientX - touches[1].clientX,
+      touches[0].clientY - touches[1].clientY
+    );
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      interactionRef.current.mode = 'move';
+      interactionRef.current.startPos = { ...position };
+      interactionRef.current.startTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if (e.touches.length === 2) {
+      interactionRef.current.mode = 'pinch';
+      interactionRef.current.startDist = getDistance(e.touches);
+      interactionRef.current.startScale = scale;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    if (interactionRef.current.mode === 'move' && e.touches.length === 1) {
+      const dx = e.touches[0].clientX - interactionRef.current.startTouch.x;
+      const dy = e.touches[0].clientY - interactionRef.current.startTouch.y;
+      setPosition({ x: interactionRef.current.startPos.x + dx, y: interactionRef.current.startPos.y + dy });
+    } else if (interactionRef.current.mode === 'pinch' && e.touches.length === 2) {
+      const dist = getDistance(e.touches);
+      const factor = dist / interactionRef.current.startDist;
+      const newScale = Math.max(0.1, Math.min(5, interactionRef.current.startScale * factor));
+      setScale(newScale);
+    }
+  };
+
+  const handleTouchEnd = () => { interactionRef.current.mode = null; };
+  const handleMouseDown = (e: React.MouseEvent) => {
+    interactionRef.current.mode = 'move';
+    interactionRef.current.startPos = { ...position };
+    interactionRef.current.startTouch = { x: e.clientX, y: e.clientY };
+  };
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (interactionRef.current.mode === 'move') {
+        e.preventDefault();
+        const dx = e.clientX - interactionRef.current.startTouch.x;
+        const dy = e.clientY - interactionRef.current.startTouch.y;
+        setPosition({ x: interactionRef.current.startPos.x + dx, y: interactionRef.current.startPos.y + dy });
+    }
+  };
+  const handleMouseUp = () => { interactionRef.current.mode = null; };
+
+  const handleCrop = () => {
+    if (!imgElement) return;
+    const canvas = document.createElement('canvas');
+    const width = 400;
+    const height = cropShape === 'circle' ? 400 : 300; 
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+    const centerX = width / 2;
+    const centerY = height / 2;
+    ctx.translate(centerX, centerY);
+    const ratio = width / (cropShape === 'circle' ? 256 : 300); 
+    ctx.scale(scale * ratio, scale * ratio); 
+    ctx.translate(position.x / scale, position.y / scale);
+    ctx.drawImage(imgElement, -imgElement.width / 2, -imgElement.height / 2);
+    onCrop(canvas.toDataURL('image/jpeg', 0.9));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in" onTouchMove={e => e.preventDefault()}>
+      <div className="bg-white p-6 rounded-[2rem] w-full max-w-sm shadow-2xl flex flex-col gap-4 max-h-[85vh] overflow-y-auto">
+        <h3 className="font-black text-xl text-center text-slate-800">
+            {cropShape === 'circle' ? '調整頭像' : '調整照片範圍'}
+        </h3>
+        <div className="flex justify-between items-center text-xs text-slate-400 font-bold px-2">
+            <span>單指拖曳 / 雙指縮放</span>
+            <button onClick={() => imgElement && fitImage(imgElement)} className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded">顯示全圖</button>
+        </div>
+        <div className={`relative mx-auto overflow-hidden bg-slate-100 border-2 border-indigo-100 shadow-inner cursor-move touch-none flex-shrink-0 ${cropShape === 'circle' ? 'w-64 h-64 rounded-full' : 'w-full aspect-[4/3] rounded-2xl'}`}
+             style={{ touchAction: 'none' }}
+             onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}
+             onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
+        >
+            {imgElement && (
+                <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center pointer-events-none"
+                    style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`, transformOrigin: 'center', transition: interactionRef.current.mode ? 'none' : 'transform 0.1s ease-out' }}>
+                    <img src={imageUrl} className="max-w-none max-h-none select-none" draggable={false} />
+                </div>
+            )}
+            {cropShape === 'circle' && <div className="absolute inset-0 pointer-events-none rounded-full border-[50px] border-black/50" style={{ borderRadius: '50%' }}></div>}
+            {cropShape === 'rect' && <div className="absolute inset-0 pointer-events-none border-2 border-white/30 m-4 rounded-xl"></div>}
+        </div>
+        <div className="space-y-4 px-2">
+            <div className="flex items-center gap-2">
+                <Minimize size={14} className="text-slate-400"/>
+                <input type="range" min="0.1" max="3" step="0.05" value={scale} onChange={e => setScale(parseFloat(e.target.value))} className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"/>
+                <Maximize size={14} className="text-slate-400"/>
+            </div>
+        </div>
+        <div className="flex gap-3 mt-4 mb-2">
+          <button onClick={onCancel} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black active:scale-95 transition-transform text-sm">取消</button>
+          <button onClick={handleCrop} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-200 active:scale-95 transition-transform text-sm">確認裁切</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// [NEW] 動作編輯器
+const ExerciseEditorModal = ({ isOpen, onClose, exercise, onSave }: any) => {
+    const [localEx, setLocalEx] = useState(exercise);
+    const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
+
+    useEffect(() => { setLocalEx(exercise); }, [exercise]);
+
+    const handleFileSelect = async (e: any) => {
+        if (e.target.files && e.target.files[0]) {
+            const reader = new FileReader();
+            reader.readAsDataURL(e.target.files[0]);
+            reader.onload = (ev) => setPendingPhoto(ev.target?.result as string);
+            e.target.value = '';
+        }
+    };
+
+    if (!isOpen || !localEx) return null;
+
+    return (
+        <>
+            {pendingPhoto && (
+                <ImageCropper 
+                    imageUrl={pendingPhoto} 
+                    cropShape="rect" 
+                    onCrop={(url: string) => { setLocalEx({...localEx, photo: url}); setPendingPhoto(null); }} 
+                    onCancel={() => setPendingPhoto(null)} 
+                />
+            )}
+            
+            <div className="fixed inset-0 z-[150000] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200" onClick={onClose}>
+                <div className="bg-white p-6 rounded-[2rem] w-full max-w-sm shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                    <div className="flex justify-between items-center mb-2">
+                        <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><Wrench className="text-indigo-600"/> 編輯動作</h3>
+                        <button onClick={onClose}><X className="text-slate-400 hover:text-slate-600"/></button>
+                    </div>
+
+                    <div className="flex flex-col items-center justify-center mb-2">
+                        <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden border-4 border-white shadow-lg bg-slate-100 ring-2 ring-indigo-50 group">
+                            {localEx.photo ? (
+                                <img src={localEx.photo} className="w-full h-full object-contain bg-slate-900"/>
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-slate-300 gap-2 font-bold"><Dumbbell size={32}/> 暫無照片</div>
+                            )}
+                            <label className="absolute bottom-2 right-2 bg-indigo-600 text-white p-2.5 rounded-full shadow-lg cursor-pointer active:scale-90 transition-transform border-2 border-white z-10 flex items-center justify-center">
+                                <Camera size={18} />
+                                <input type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
+                            </label>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-bold mt-2">支援 iPhone 直式照片 (自動補白邊)</span>
+                    </div>
+
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs font-bold text-slate-400 mb-1 block">動作名稱</label>
+                            <input value={localEx.name} onChange={e=>setLocalEx({...localEx, name: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div><label className="text-xs font-bold text-slate-400 mb-1 block">部位</label><select value={localEx.muscle} onChange={e=>setLocalEx({...localEx, muscle: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none">{MUSCLES.map(m=><option key={m} value={m}>{m}</option>)}</select></div>
+                            <div><label className="text-xs font-bold text-slate-400 mb-1 block">器材</label><select value={localEx.tool} onChange={e=>setLocalEx({...localEx, tool: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none">{TOOLS.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div><label className="text-xs font-bold text-slate-400 mb-1 block">模式</label><select value={localEx.mode} onChange={e=>setLocalEx({...localEx, mode: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none">{TRAIN_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select></div>
+                            <div><label className="text-xs font-bold text-slate-400 mb-1 block">地點</label><input value={localEx.gym || ''} onChange={e=>setLocalEx({...localEx, gym: e.target.value})} placeholder="選填" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none" /></div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-400 mb-1 block">教學影片連結 (YouTube)</label>
+                            <input value={localEx.videoUrl || ''} onChange={e=>setLocalEx({...localEx, videoUrl: e.target.value})} placeholder="https://..." className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500 text-xs" />
+                        </div>
+                    </div>
+
+                    <button onClick={() => onSave(localEx)} className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-black text-lg shadow-lg active:scale-95 transition-transform mt-2">儲存變更</button>
+                </div>
+            </div>
+        </>
+    );
+};
+
 // --- [3. 彈窗組件] ---
 
 const UserProfileModal = ({ isOpen, onClose, data, onUpdate }: any) => {
   const [localProfile, setLocalProfile] = useState(data.profile || DEFAULT_DATA.profile);
+  const [pendingAvatar, setPendingAvatar] = useState<string | null>(null); 
+
   useEffect(() => { if (isOpen) setLocalProfile(data.profile || DEFAULT_DATA.profile); }, [isOpen, data.profile]);
 
   const handleSave = () => {
@@ -97,25 +322,93 @@ const UserProfileModal = ({ isOpen, onClose, data, onUpdate }: any) => {
     onClose();
   };
 
+  const handleFileSelect = async (e: any) => {
+    if (e.target.files && e.target.files[0]) {
+      const reader = new FileReader();
+      reader.readAsDataURL(e.target.files[0]);
+      reader.onload = (ev) => {
+          setPendingAvatar(ev.target?.result as string);
+      }
+      e.target.value = ''; 
+    }
+  };
+
+  const handleCropComplete = (croppedUrl: string) => {
+      setLocalProfile({ ...localProfile, avatar: croppedUrl });
+      setPendingAvatar(null);
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[130000] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-white p-6 rounded-[2rem] w-full max-w-sm shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200">
-        <div className="flex justify-between items-center mb-2">
-          <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><User className="text-indigo-600"/> 個人身分紀錄</h3>
-          <button onClick={onClose}><X className="text-slate-400 hover:text-slate-600"/></button>
+    <>
+        {pendingAvatar && (
+            <ImageCropper 
+                imageUrl={pendingAvatar} 
+                cropShape="circle" 
+                onCrop={handleCropComplete} 
+                onCancel={() => setPendingAvatar(null)} 
+            />
+        )}
+        
+        <div className="fixed inset-0 z-[130000] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="bg-white p-6 rounded-[2rem] w-full max-w-sm shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200 max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-2">
+            <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><User className="text-indigo-600"/> 個人身分紀錄</h3>
+            <button onClick={onClose}><X className="text-slate-400 hover:text-slate-600"/></button>
+            </div>
+
+            <div className="flex flex-col items-center justify-center mb-4">
+                <div className="relative w-28 h-28">
+                    <div className="w-full h-full rounded-full overflow-hidden border-4 border-white shadow-xl bg-slate-100 ring-4 ring-indigo-50 relative">
+                      {localProfile.avatar ? (
+                          <img src={localProfile.avatar} className="w-full h-full object-cover" alt="Avatar" />
+                      ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-300"><User size={48}/></div>
+                      )}
+                    </div>
+                    
+                    <label className="absolute -bottom-1 -right-1 bg-indigo-600 text-white p-2.5 rounded-full shadow-lg cursor-pointer active:scale-90 transition-transform border-2 border-white z-10 flex items-center justify-center">
+                        <Camera size={18} />
+                        <input type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
+                    </label>
+                </div>
+                <span className="text-xs text-slate-400 font-bold mt-3">點擊相機圖示更換</span>
+            </div>
+
+            <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-xs font-bold text-slate-400 mb-1 block">生日</label><input type="date" value={localProfile.birthday} onChange={e=>setLocalProfile({...localProfile, birthday: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500" /></div>
+                <div><label className="text-xs font-bold text-slate-400 mb-1 block">性別</label><select value={localProfile.gender} onChange={e=>setLocalProfile({...localProfile, gender: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500"><option value="male">男性</option><option value="female">女性</option></select></div>
+            </div>
+            <div><label className="text-xs font-bold text-slate-400 mb-1 block">身高 (cm)</label><div className="relative"><input type="number" inputMode="numeric" value={localProfile.height} onChange={e=>setLocalProfile({...localProfile, height: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500 pl-10" /><Ruler size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/></div></div>
+            <div><label className="text-xs font-bold text-slate-400 mb-1 block">日常活動量</label><div className="relative"><select value={localProfile.activity} onChange={e=>setLocalProfile({...localProfile, activity: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500 pl-10 appearance-none"><option value="sedentary">久坐 (BMR x 1.2)</option><option value="light">輕度 (BMR x 1.375)</option><option value="moderate">中度 (BMR x 1.55)</option><option value="heavy">重度 (BMR x 1.725)</option><option value="athlete">極重度 (BMR x 1.9)</option></select><Activity size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/></div></div>
+            <div><label className="text-xs font-bold text-slate-400 mb-1 block">飲食偏好</label><div className="relative"><select value={localProfile.diet} onChange={e=>setLocalProfile({...localProfile, diet: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500 pl-10 appearance-none"><option value="none">無特別限制</option><option value="vegan">純素 (Vegan)</option><option value="ovo-lacto">蛋奶素</option><option value="no-beef">不吃牛</option><option value="keto">生酮飲食</option></select><Utensils size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/></div></div>
+            </div>
+            <button onClick={handleSave} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-transform mt-2">儲存設定</button>
         </div>
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-xs font-bold text-slate-400 mb-1 block">生日</label><input type="date" value={localProfile.birthday} onChange={e=>setLocalProfile({...localProfile, birthday: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500" /></div>
-            <div><label className="text-xs font-bold text-slate-400 mb-1 block">性別</label><select value={localProfile.gender} onChange={e=>setLocalProfile({...localProfile, gender: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500"><option value="male">男性</option><option value="female">女性</option></select></div>
-          </div>
-          <div><label className="text-xs font-bold text-slate-400 mb-1 block">身高 (cm)</label><div className="relative"><input type="number" inputMode="numeric" value={localProfile.height} onChange={e=>setLocalProfile({...localProfile, height: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500 pl-10" /><Ruler size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/></div></div>
-          <div><label className="text-xs font-bold text-slate-400 mb-1 block">日常活動量</label><div className="relative"><select value={localProfile.activity} onChange={e=>setLocalProfile({...localProfile, activity: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500 pl-10 appearance-none"><option value="sedentary">久坐 (BMR x 1.2)</option><option value="light">輕度 (BMR x 1.375)</option><option value="moderate">中度 (BMR x 1.55)</option><option value="heavy">重度 (BMR x 1.725)</option><option value="athlete">極重度 (BMR x 1.9)</option></select><Activity size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/></div></div>
-          <div><label className="text-xs font-bold text-slate-400 mb-1 block">飲食偏好</label><div className="relative"><select value={localProfile.diet} onChange={e=>setLocalProfile({...localProfile, diet: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-indigo-500 pl-10 appearance-none"><option value="none">無特別限制</option><option value="vegan">純素 (Vegan)</option><option value="ovo-lacto">蛋奶素</option><option value="no-beef">不吃牛</option><option value="keto">生酮飲食</option></select><Utensils size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/></div></div>
         </div>
-        <button onClick={handleSave} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-transform mt-2">儲存設定</button>
+    </>
+  );
+};
+
+const AdviceModal = ({ advice, onClose }: any) => {
+  if (!advice) return null;
+  return (
+    <div className="fixed inset-0 z-[200000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+      <div className="bg-white p-6 rounded-[2rem] w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200 relative" onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X/></button>
+        <div className="flex items-center gap-2 text-indigo-600 font-black text-xl border-b pb-3">
+          <Bot size={24}/>
+          <h3>AI 體態分析</h3>
+        </div>
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-2">
+          <Clock size={14}/> {advice.date} 的建議
+        </div>
+        <div className="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-line max-h-[60vh] overflow-y-auto pr-2">
+          {advice.text}
+        </div>
+        <button onClick={onClose} className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 transition-colors">關閉</button>
       </div>
     </div>
   );
@@ -182,6 +475,41 @@ const DataTransferModal = ({ isOpen, type, data, onImport, onClose }: any) => {
         <textarea className="flex-1 border rounded-xl p-3 font-mono text-[11px] mb-4 bg-slate-50 outline-none" value={json} onChange={e=>setJson(e.target.value)} readOnly={type==='export'} />
         <button onClick={()=>{ if(type==='export') { navigator.clipboard.writeText(json); alert('已複製'); } else { try{onImport(JSON.parse(json));onClose();alert('匯入成功');}catch(e){alert('格式錯誤');}} }} className="bg-indigo-600 text-white py-4 rounded-xl font-black">確認</button>
       </div>
+    </div>
+  );
+};
+
+// [關鍵修正] SwipeableRow 元件移出 StrengthLogView，解決輸入框失去焦點問題
+const SwipeableRow = ({ children, onComplete }: any) => {
+  const [startX, setStartX] = useState<number | null>(null);
+  const [startY, setStartY] = useState<number | null>(null);
+  const [offsetX, setOffsetX] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+
+  return (
+    <div className="relative overflow-hidden rounded-xl bg-slate-800 shadow-sm"
+      onTouchStart={e => {
+        if ((e.target as HTMLElement).closest('button, input, select')) return;
+        setStartX(e.targetTouches[0].clientX);
+        setStartY(e.targetTouches[0].clientY);
+      }}
+      onTouchMove={e => {
+        if (startX === null) return;
+        const diffX = e.targetTouches[0].clientX - startX;
+        const diffY = e.targetTouches[0].clientY - (startY || 0);
+        if (!isSwiping && Math.abs(diffY) > Math.abs(diffX)) { setStartX(null); return; }
+        setIsSwiping(true);
+        if (diffX > 0 && diffX < 150) setOffsetX(diffX);
+      }}
+      onTouchEnd={() => {
+        if (offsetX > 80) onComplete();
+        setStartX(null); setStartY(null); setOffsetX(0); setIsSwiping(false);
+      }}
+    >
+      <div className={`absolute inset-0 flex items-center pl-6 transition-colors ${offsetX > 60 ? 'bg-emerald-500' : 'bg-slate-700'}`}>
+        <CheckCircle size={28} className={`text-white transition-opacity duration-300 ${offsetX > 0 ? 'opacity-100 scale-110' : 'opacity-0'}`} />
+      </div>
+      <div className="relative bg-slate-800 transition-transform duration-200 ease-out" style={{ transform: `translateX(${offsetX}px)` }}>{children}</div>
     </div>
   );
 };
@@ -313,13 +641,12 @@ const PlanManageModal = ({ isOpen, onClose, data, onUpdate }: any) => {
   );
 };
 
-// [動作庫管理彈窗]
+// [動作庫管理彈窗 - 升級為使用 ExerciseEditor]
 const ExerciseLibraryModal = ({ isOpen, onClose, data, onUpdate }: any) => {
   const [filterMuscle, setFilterMuscle] = useState<string>('胸');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState('');
+  const [editingEx, setEditingEx] = useState<any>(null); // [NEW] 使用完整編輯器
   const [confirmConfig, setConfirmConfig] = useState<any>(null);
-  const [videoModal, setVideoModal] = useState<{open:boolean, url:string, title:string}>({open:false, url:'', title:''}); // [NEW]
+  const [videoModal, setVideoModal] = useState<{open:boolean, url:string, title:string}>({open:false, url:'', title:''}); 
 
   if (!isOpen) return null;
 
@@ -327,7 +654,18 @@ const ExerciseLibraryModal = ({ isOpen, onClose, data, onUpdate }: any) => {
     <div className="fixed inset-0 bg-black/70 z-[110000] flex items-center justify-center p-4 backdrop-blur-md">
       <ConfirmationModal isOpen={!!confirmConfig} message={confirmConfig?.message} onConfirm={confirmConfig?.onConfirm} onCancel={()=>setConfirmConfig(null)} />
       <VideoPlayerModal isOpen={videoModal.open} onClose={()=>setVideoModal({...videoModal, open:false})} videoUrl={videoModal.url} title={videoModal.title} />
-       
+      
+      {/* [NEW] 引入完整編輯器 */}
+      <ExerciseEditorModal 
+          isOpen={!!editingEx} 
+          onClose={() => setEditingEx(null)}
+          exercise={editingEx}
+          onSave={(updatedEx: any) => {
+              onUpdate({ ...data, exercises: data.exercises.map((e: any) => e.id === updatedEx.id ? updatedEx : e) });
+              setEditingEx(null);
+          }}
+      />
+      
       <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-6 shadow-2xl flex flex-col max-h-[85vh]">
         <div className="flex justify-between items-center mb-6 font-black text-xl text-indigo-600">
           <h3 className="flex items-center gap-2"><BookOpen/> 動作庫維護</h3>
@@ -346,30 +684,24 @@ const ExerciseLibraryModal = ({ isOpen, onClose, data, onUpdate }: any) => {
           {data.exercises.filter((e: any) => e.muscle === filterMuscle).map((ex: any) => (
             <div key={ex.id} className="p-3 rounded-2xl border bg-white flex flex-col gap-2 shadow-sm">
               <div className="flex items-center justify-between gap-3">
-                {editingId === ex.id ? (
-                  <div className="flex-1 flex gap-2">
-                    <input value={editName} onChange={e => setEditName(e.target.value)} className="flex-1 border-b-2 border-indigo-500 font-black outline-none px-1" autoFocus />
-                    <button onClick={() => { onUpdate({...data, exercises: data.exercises.map((x:any)=>x.id===ex.id?{...x, name:editName}:x)}); setEditingId(null); }} className="p-2 text-emerald-500"><Check/></button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    {ex.photo && <div className="w-8 h-8 rounded-lg bg-slate-100 overflow-hidden flex-shrink-0"><img src={ex.photo} className="w-full h-full object-cover"/></div>}
+                {/* [修正] 動作庫列表照片也改為長方形 */}
+                <div className="flex items-center gap-2 overflow-hidden">
+                    {ex.photo && <div className="w-16 h-12 rounded-lg bg-black overflow-hidden flex-shrink-0 border border-slate-200"><img src={ex.photo} className="w-full h-full object-contain"/></div>}
                     <div className="flex flex-col">
-                      <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1">
                         <span className="font-black text-slate-700 truncate">{ex.name}</span>
                         {ex.videoUrl && <button onClick={()=>setVideoModal({open:true, url:ex.videoUrl, title:ex.name})} className="text-blue-500 hover:text-blue-600"><Video size={16}/></button>}
-                      </div>
-                      <div className="flex gap-1 text-[10px] text-slate-400 font-bold">
+                        </div>
+                        <div className="flex gap-1 text-[10px] text-slate-400 font-bold">
                         {ex.tool && <span className="bg-slate-100 px-1 rounded">{ex.tool}</span>}
                         {ex.gym && <span className="bg-slate-100 px-1 rounded truncate max-w-[80px]">{ex.gym}</span>}
                         {ex.mode && <span className="bg-indigo-50 text-indigo-500 px-1 rounded">{ex.mode}</span>}
-                      </div>
+                        </div>
                     </div>
-                  </div>
-                )}
+                </div>
                 
                 <div className="flex items-center gap-1">
-                  <button onClick={() => { setEditingId(ex.id); setEditName(ex.name); }} className="p-2 text-slate-300 hover:text-indigo-600"><Edit2 size={16}/></button>
+                  <button onClick={() => setEditingEx(ex)} className="p-2 text-slate-300 hover:text-indigo-600"><Edit2 size={16}/></button>
                   <button onClick={() => onUpdate({ ...data, exercises: data.exercises.map((x:any)=>x.id===ex.id?{...x, isTracked:x.isTracked===false}:x)})} className="p-2">
                     {ex.isTracked !== false ? <Eye size={16} className="text-teal-500"/> : <EyeOff size={16} className="text-slate-400"/>}
                   </button>
@@ -391,6 +723,7 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
   const [endDate, setEndDate] = useState(getLocalDate());
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<any>(null);
+  const [viewingAdvice, setViewingAdvice] = useState<any>(null); // [NEW] 控制查看建議的 Modal
 
   const photoEntries = useMemo(() => data.entries.filter((e:any)=>e.date>=startDate && e.date<=endDate && (e.photo || e.inbodyPhoto)).sort((a:any,b:any)=>a.date.localeCompare(b.date)), [data.entries, startDate, endDate]);
   const weightChange = useMemo(() => {
@@ -400,12 +733,12 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
 
   const handleAskAI = async () => {
     if (!GEMINI_API_KEY) { 
-      alert("API Key 未設定！\n請前往 Netlify 後台 > Site configuration > Environment variables\n新增變數: VITE_GOOGLE_API_KEY\n並重新部署網站。"); 
+      alert("請填寫 API Key：\n1. 請到 https://aistudio.google.com/app/apikey\n2. 點擊 Create API key\n3. 選擇 'Create API key in new project'\n4. 複製 Key 並填入程式碼最上方"); 
       return; 
     }
     setIsAiLoading(true);
 
-    const recentLogs = data.entries.slice(-7).map((e:any) => `${e.date}: ${e.weight}kg`).join('\n');
+    const recentLogs = data.entries.slice(-7).map((e:any) => `${e.date}: ${e.weight}kg` + (e.inbodyPhoto ? '(有InBody數據)' : '')).join('\n');
     const profile = data.profile ? `性別:${data.profile.gender}, 年齡:${new Date().getFullYear()-new Date(data.profile.birthday).getFullYear()}, 身高:${data.profile.height}cm` : '無個人檔案';
     const goal = data.goals ? `目標體重:${data.goals.targetWeight}kg` : '無目標';
 
@@ -414,11 +747,11 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
     [目標] ${goal}
     [近期體重變化]
     ${recentLogs}
-     
+    
     請用繁體中文回答，包含：
     1. 【目前評語】：分析進度與狀況。
     2. 【後續建議】：給出飲食或訓練的具體調整方向。
-    3. 總字數請控制在 200 字以內，語氣專業且鼓勵。`;
+    總字數請控制在 200 字以內，語氣專業且鼓勵。`;
 
     const callGemini = async (model: string) => {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
@@ -433,8 +766,7 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
     try {
       let result;
       try {
-        // [修正] 先嘗試最新模型，若 404 則降級到 gemini-pro
-        result = await callGemini('gemini-flash-latest');
+        result = await callGemini('gemini-1.5-flash');
       } catch (e: any) {
         if (e.message === '404') {
           console.warn('Gemini 1.5 Flash not found, switching to Gemini Pro...');
@@ -453,11 +785,12 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
       };
       
       onUpdate({ ...data, aiAdvice: [newAdvice, ...(data.aiAdvice || [])] });
+      setViewingAdvice(newAdvice); // [NEW] 成功後直接跳出視窗
 
     } catch (error: any) {
       console.error(error);
       if (error.message === '404') {
-        alert("API Error 404: 您的 API Key 無效或未啟用 AI 服務。\n請務必到 Google AI Studio 申請一個 '新專案' 的 Key。");
+        alert("API Error 404: 您的專案未啟用 AI 服務。\n請務必到 Google AI Studio 申請一個 '新專案' 的 Key。");
       } else {
         alert(`AI 分析失敗 (${error.message})，請檢查 API Key 或網路連線。`);
       }
@@ -466,11 +799,11 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
     }
   };
 
-  const latestAdvice = data.aiAdvice && data.aiAdvice.length > 0 ? data.aiAdvice[0] : null;
-
   return (
     <div className="space-y-6 pb-24">
       <ConfirmationModal isOpen={!!confirmConfig} message={confirmConfig?.message} onConfirm={confirmConfig?.onConfirm} onCancel={()=>setConfirmConfig(null)} />
+      <AdviceModal advice={viewingAdvice} onClose={()=>setViewingAdvice(null)} />
+
       <div className="bg-white p-4 rounded-[1.5rem] shadow-sm border flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border"><CalendarIcon size={18} className="text-slate-400"/><input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="bg-transparent font-bold text-sm outline-none"/><span className="text-slate-300">至</span><input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="bg-transparent font-bold text-sm outline-none"/></div>
         <div className="bg-slate-50 px-5 py-3 rounded-2xl border flex items-center gap-4"><span className="text-xs font-black text-slate-400 uppercase tracking-widest">變化</span><span className={`text-xl font-black ${Number(weightChange)<=0?'text-[#1a9478]':'text-red-500'}`}>{Number(weightChange)>0?'+':''}{weightChange} kg</span></div>
@@ -484,14 +817,22 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
             <div><h3 className="font-black text-2xl flex items-center gap-2"><Sparkles className="text-yellow-300 animate-pulse"/> AI 體態管理師</h3><p className="text-indigo-200 text-xs font-bold mt-1">基於您的數據提供專業分析</p></div>
             <button onClick={handleAskAI} disabled={isAiLoading} className="bg-white text-indigo-600 px-5 py-2 rounded-xl font-black text-xs shadow-lg active:scale-95 transition-all flex items-center gap-2">{isAiLoading ? <Loader2 className="animate-spin"/> : <MessageSquare size={16}/>} {isAiLoading ? '分析中...' : '諮詢建議'}</button>
           </div>
-          {latestAdvice ? (
-            <div className="bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/20">
-              <div className="flex items-center gap-2 mb-2 opacity-70"><Clock size={12}/><span className="text-[10px]">{latestAdvice.date} 最新建議</span></div>
-              <p className="text-sm font-medium leading-relaxed whitespace-pre-line">{latestAdvice.text}</p>
+          
+          {/* [NEW] 諮詢歷史列表 (按鈕) */}
+          <div className="mt-4">
+            <div className="text-xs font-bold opacity-60 mb-2 uppercase tracking-wider">諮詢紀錄 (點擊查看)</div>
+            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+              {data.aiAdvice && data.aiAdvice.length > 0 ? (
+                data.aiAdvice.map((advice: any) => (
+                  <button key={advice.id} onClick={()=>setViewingAdvice(advice)} className="flex-shrink-0 bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg text-xs font-bold transition-colors whitespace-nowrap flex items-center gap-1">
+                    <Clock size={12}/> {advice.date}
+                  </button>
+                ))
+              ) : (
+                <div className="text-white/40 text-xs italic">尚無紀錄</div>
+              )}
             </div>
-          ) : (
-            <div className="text-center py-4 text-indigo-200 text-xs font-bold">尚無分析紀錄，點擊按鈕開始諮詢。</div>
-          )}
+          </div>
         </div>
       </div>
 
@@ -500,10 +841,10 @@ const BodyAnalysisView = ({ data, onUpdate }: any) => {
           <div key={e.id} className="relative aspect-[3/4] rounded-3xl overflow-hidden shadow-md group bg-slate-200">
             {/* [修正] 圖片顯示優先順序：有照片顯示照片，無照片但有 InBody 顯示 InBody */}
             <img src={e.photo || e.inbodyPhoto} className="w-full h-full object-cover" />
-             
+            
             {/* 提示：如果顯示的是 InBody，或是該日有 InBody 數據，顯示小圖示 */}
             {e.inbodyPhoto && <div className="absolute top-2 right-2 bg-blue-500 text-white p-1 rounded-lg shadow-sm"><FileText size={12}/></div>}
-             
+            
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end p-4">
               <div className="text-[10px] text-white/70">{e.date}</div>
               <div className="flex items-end justify-between text-white">
@@ -566,7 +907,7 @@ const BodyMetricsView = ({ data, onUpdate }: any) => {
 
   const CustomDotActual = (props: any) => { const { cx, cy, payload } = props; return <circle cx={cx} cy={cy} r={3} fill={payload.isActualRisingTwice ? "#ef4444" : "#94a3b8"} className={payload.isActualRisingTwice ? "animate-trend-warning" : ""} stroke="#fff" strokeWidth={1} />; };
   const CustomDotAvg = (props: any) => { const { cx, cy, payload } = props; return <circle cx={cx} cy={cy} r={4} fill={payload.isAvgIncreasing ? "#ef4444" : "#1a9478"} className={payload.isAvgIncreasing ? "animate-trend-warning" : ""} stroke="#fff" strokeWidth={2} />; };
-   
+  
   const handleSave = () => { 
     if(!weight)return; 
     onUpdate({
@@ -597,11 +938,14 @@ const BodyMetricsView = ({ data, onUpdate }: any) => {
       <UserProfileModal isOpen={isProfileOpen} onClose={()=>setIsProfileOpen(false)} data={data} onUpdate={onUpdate} />
       <ConfirmationModal isOpen={!!confirmConfig} message={confirmConfig?.message} onConfirm={confirmConfig?.onConfirm} onCancel={()=>setConfirmConfig(null)} />
       <DatePickerModal isOpen={showDateModal} onClose={()=>setShowDateModal(false)} currentDate={date} onSelect={setDate} />
-       
+      
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         {/* 目標設定區塊 */}
         <div className="bg-white p-6 rounded-[1.5rem] shadow-sm md:col-span-2 border relative">
-          <button onClick={()=>setIsProfileOpen(true)} className="absolute top-6 right-20 text-indigo-600 bg-indigo-50 p-2 rounded-full"><User size={16}/></button>
+          {/* [修正] 左上角大頭貼：改為點擊觸發個人檔案 Modal */}
+          <button onClick={()=>setIsProfileOpen(true)} className="absolute top-6 right-6 z-10 w-12 h-12 rounded-full overflow-hidden shadow-lg border-2 border-white hover:scale-110 transition-transform bg-white">
+            {data.profile?.avatar ? <img src={data.profile.avatar} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-indigo-100 flex items-center justify-center text-indigo-400"><User size={24}/></div>}
+          </button>
           <div className="flex justify-between mb-4 font-bold text-slate-700">
             <h3>目標設定</h3>
             <div className="flex gap-2">
@@ -652,7 +996,7 @@ const BodyMetricsView = ({ data, onUpdate }: any) => {
 
         <div className="bg-[#1a9478] p-8 rounded-[1.5rem] shadow-lg md:col-span-3 text-white flex flex-col justify-between relative overflow-hidden"><div className="absolute top-4 left-4 opacity-20"><Scale size={24}/></div><div><h3 className="text-sm font-bold opacity-80 mb-4 uppercase tracking-tighter">最新數據</h3><div className="flex items-baseline gap-2"><span className="text-6xl font-black">{chartData[chartData.length-1]?.weight || '--'}</span><span className="text-xl font-bold">kg</span></div></div><div className="self-end text-right"><div className="text-xs opacity-70 font-bold mb-1">7日平均</div><div className="text-3xl font-black">{chartData[chartData.length-1]?.avgWeight || '--'} kg</div></div></div>
       </div>
-       
+      
       <div className="bg-white p-6 rounded-[1.5rem] shadow-sm border">
         <h2 className="font-black mb-6 flex items-center gap-2"><PlusCircle className="text-teal-600"/> 記錄今日體重</h2>
         <div className="flex flex-col md:flex-row gap-4">
@@ -688,7 +1032,7 @@ const BodyMetricsView = ({ data, onUpdate }: any) => {
           </LineChart>
         </ResponsiveContainer>
       </div>
-       
+      
       <div className="bg-white rounded-[1.5rem] shadow-sm border border-slate-100 overflow-hidden"><div className="p-5 border-b bg-slate-50/50 flex justify-between font-black text-slate-700"><h3>歷史紀錄 (點選修改)</h3></div><div className="max-h-[400px] overflow-y-auto divide-y divide-slate-50 no-scrollbar">{[...data.entries].sort((a,b)=>b.date.localeCompare(a.date)).map((e:any)=>(
         <div key={e.id} className={`p-4 transition-all ${editingId === e.id ? 'bg-indigo-50/50 shadow-inner' : 'hover:bg-slate-50'}`}>
           {editingId === e.id ? (
@@ -729,7 +1073,8 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
   const [isCopy, setIsCopy] = useState(false); 
   const [showDateModal, setShowDateModal] = useState(false); 
   const [videoModal, setVideoModal] = useState<{open:boolean, url:string, title:string}>({open:false, url:'', title:''}); 
-   
+  const [editingExercise, setEditingExercise] = useState<any>(null); // [NEW] 編輯動作狀態
+
   const [muscle, setMuscle] = useState<string>('胸'); 
   const [exId, setExId] = useState('');
   const [newName, setNewName] = useState('');
@@ -738,7 +1083,7 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
   const [newGym, setNewGym] = useState('');
   const [newPhoto, setNewPhoto] = useState<string|undefined>();
   const [newVideo, setNewVideo] = useState('');
-   
+  
   const [confirmConfig, setConfirmConfig] = useState<any>(null); 
 
   const currentPlan = localPlan || data.dailyPlans?.[date] || '';
@@ -778,46 +1123,23 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
     onUpdate({ ...data, dailyPlans: { ...data.dailyPlans, [date]: sourcePlan }, logs: [...data.logs.filter((l: any) => l.date !== date), ...newLogs] });
   };
 
-  const SwipeableRow = ({ children, onComplete }: any) => {
-    const [startX, setStartX] = useState<number | null>(null);
-    const [startY, setStartY] = useState<number | null>(null);
-    const [offsetX, setOffsetX] = useState(0);
-    const [isSwiping, setIsSwiping] = useState(false);
-
-    return (
-      <div className="relative overflow-hidden rounded-xl bg-slate-800 shadow-sm"
-        onTouchStart={e => {
-          if ((e.target as HTMLElement).closest('button, input, select')) return;
-          setStartX(e.targetTouches[0].clientX);
-          setStartY(e.targetTouches[0].clientY);
-        }}
-        onTouchMove={e => {
-          if (startX === null) return;
-          const diffX = e.targetTouches[0].clientX - startX;
-          const diffY = e.targetTouches[0].clientY - (startY || 0);
-          if (!isSwiping && Math.abs(diffY) > Math.abs(diffX)) { setStartX(null); return; }
-          setIsSwiping(true);
-          if (diffX > 0 && diffX < 150) setOffsetX(diffX);
-        }}
-        onTouchEnd={() => {
-          if (offsetX > 80) onComplete();
-          setStartX(null); setStartY(null); setOffsetX(0); setIsSwiping(false);
-        }}
-      >
-        <div className={`absolute inset-0 flex items-center pl-6 transition-colors ${offsetX > 60 ? 'bg-emerald-500' : 'bg-slate-700'}`}>
-          <CheckCircle size={28} className={`text-white transition-opacity duration-300 ${offsetX > 0 ? 'opacity-100 scale-110' : 'opacity-0'}`} />
-        </div>
-        <div className="relative bg-slate-800 transition-transform duration-200 ease-out" style={{ transform: `translateX(${offsetX}px)` }}>{children}</div>
-      </div>
-    );
-  };
-
   return (
     <div className="space-y-6 pb-24 min-h-[600px] flex flex-col">
       <ConfirmationModal isOpen={!!confirmConfig} message={confirmConfig?.message} onConfirm={confirmConfig?.onConfirm} onCancel={()=>setConfirmConfig(null)} />
       <DatePickerModal isOpen={showDateModal} onClose={()=>setShowDateModal(false)} currentDate={date} onSelect={setDate} />
       <VideoPlayerModal isOpen={videoModal.open} onClose={()=>setVideoModal({...videoModal, open:false})} videoUrl={videoModal.url} title={videoModal.title} />
-       
+      
+      {/* [NEW] 動作編輯器 (訓練頁面用) */}
+      <ExerciseEditorModal 
+          isOpen={!!editingExercise} 
+          onClose={() => setEditingExercise(null)}
+          exercise={editingExercise}
+          onSave={(updatedEx: any) => {
+              onUpdate({ ...data, exercises: data.exercises.map((e: any) => e.id === updatedEx.id ? updatedEx : e) });
+              setEditingExercise(null);
+          }}
+      />
+
       <RestTimerModal isOpen={isTimerOpen} onClose={()=>setIsTimerOpen(false)} />
       <CopyWorkoutModal isOpen={isCopy} onClose={()=>setIsCopy(false)} data={data} onCopy={handleCopyHistory} />
       <PlanManageModal isOpen={isManagePlan} onClose={()=>setIsManagePlan(false)} data={data} onUpdate={onUpdate} />
@@ -827,7 +1149,7 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
         <button onClick={()=>setShowDateModal(true)} className="flex items-center gap-2 text-slate-700 font-black"><CalendarIcon size={20} className="text-slate-400"/> {date}</button>
         {currentPlan && <button onClick={()=>{setLocalPlan(''); onUpdate({...data, dailyPlans:{...data.dailyPlans,[date]:''}});}} className="text-xs bg-red-50 text-red-600 px-4 py-2 rounded-full font-black">清空計畫</button>}
       </div>
-       
+      
       {!currentPlan ? (
         <div className="bg-white p-10 rounded-[2.5rem] border-2 border-dashed border-slate-200 text-center space-y-6 flex-1 flex flex-col justify-center">
           <div className="space-y-2"><h3 className="text-2xl font-black text-slate-800 tracking-tighter">選擇今日計畫</h3></div>
@@ -850,10 +1172,13 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
               <div key={ex.id} className="bg-slate-800 p-4 rounded-3xl shadow-xl border border-slate-700">
                 <div className="flex justify-between mb-4 font-black text-white px-2">
                   <div className="flex items-center gap-2">
-                    {ex.photo && <div className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden border border-slate-600"><img src={ex.photo} className="w-full h-full object-cover"/></div>}
+                    {/* [修正] 訓練卡片圖片 - 寬長方形顯示 */}
+                    {ex.photo && <div className="w-20 h-14 rounded-lg bg-slate-700 overflow-hidden border border-slate-600 flex-shrink-0"><img src={ex.photo} className="w-full h-full object-cover"/></div>}
                     <div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2">
                         <h4>{ex.name}</h4>
+                        {/* [NEW] 訓練卡片上的編輯按鈕 */}
+                        <button onClick={() => setEditingExercise(ex)} className="text-slate-400 hover:text-white"><Wrench size={14}/></button>
                         {ex.videoUrl && <button onClick={()=>setVideoModal({open:true, url:ex.videoUrl, title:ex.name})} className="text-blue-400 hover:text-blue-300"><Video size={16}/></button>}
                       </div>
                       <div className="flex gap-1 mt-1"><span className="text-[10px] bg-slate-700 px-2 rounded text-slate-300">{ex.muscle}</span>{ex.tool && <span className="text-[10px] bg-indigo-900 text-indigo-200 px-2 rounded">{ex.tool}</span>}</div>
@@ -862,6 +1187,7 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
                 </div>
                 {todaysLogs.filter((l:any)=>l.exerciseId===ex.id).map((log:any, i:number)=>(
                   <div key={log.id} className="mb-2">
+                    {/* [關鍵修正] 使用外部定義的 SwipeableRow */}
                     <SwipeableRow onComplete={()=>{ const up=!log.isCompleted; onUpdate({...data, logs:data.logs.map((l:any)=>l.id===log.id?{...l,isCompleted:up}:l)}); if(up)setIsTimerOpen(true); }}>
                       <div className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all ${log.isCompleted ? 'border-emerald-500 bg-emerald-900/20' : 'border-transparent bg-slate-700/40'}`}>
                         <span className="font-mono text-[10px] w-5 text-center text-slate-500">{log.isCompleted ? '✓' : i + 1}</span>
@@ -890,7 +1216,7 @@ const StrengthLogView = ({ data, onUpdate }: any) => {
                     </SwipeableRow>
                   </div>
                 ))}
-                 
+                
                 {/* [修正] 加一組按鈕邏輯：自動帶入上一組的數據 */}
                 <button onClick={()=>{
                   const currentExLogs = todaysLogs.filter((l:any) => l.exerciseId === ex.id);
@@ -1057,7 +1383,7 @@ const BodyGoalPro = () => {
   const [userData, setUserData] = useState<any>(DEFAULT_DATA);
   const [activeTab, setActiveTab] = useState<'body' | 'log' | 'analysis' | 'strength_analysis'>('body');
   const [confirmConfig, setConfirmConfig] = useState<any>(null); 
-   
+  
   const [manageExId, setManageExId] = useState<string | null>(null);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -1089,22 +1415,28 @@ const BodyGoalPro = () => {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 selection:bg-indigo-100">
       <style>{GLOBAL_STYLE}</style>
-       
+      
       <UserProfileModal isOpen={isProfileOpen} onClose={()=>setIsProfileOpen(false)} data={userData} onUpdate={updateData} />
       <ConfirmationModal isOpen={!!confirmConfig} message={confirmConfig?.message} onConfirm={confirmConfig?.onConfirm} onCancel={()=>setConfirmConfig(null)} />
       <DataTransferModal isOpen={isExportOpen} type="export" data={userData} onClose={()=>setIsExportOpen(false)} />
       <DataTransferModal isOpen={isImportOpen} type="import" onImport={updateData} onClose={()=>setIsImportOpen(false)} />
       <HistoryManagementModal isOpen={!!manageExId} targetId={manageExId} onClose={()=>setManageExId(null)} data={userData} onUpdate={updateData} />
-       
+      
       <header className="bg-white p-4 sticky top-0 z-50 shadow-sm border-b flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-200"><Activity size={20}/></div>
+          {/* [NEW] 左上角 Logo 點擊更換 */}
+          <button onClick={() => setIsProfileOpen(true)} className="p-0 rounded-2xl overflow-hidden shadow-lg shadow-indigo-200 w-10 h-10 border-2 border-white flex items-center justify-center bg-indigo-600 transition-transform active:scale-95">
+             {userData.profile?.avatar ? <img src={userData.profile.avatar} className="w-full h-full object-cover"/> : <Activity size={20} className="text-white"/>}
+          </button>
           <h1 className="text-lg font-black tracking-tighter uppercase">BODYGOAL PRO</h1>
         </div>
         <div className="flex gap-1">
           <button onClick={()=>setIsExportOpen(true)} className="p-2 text-indigo-600 active:scale-110 transition-transform"><Upload size={18}/></button>
           <button onClick={()=>setIsImportOpen(true)} className="p-2 text-emerald-600 active:scale-110 transition-transform"><Cloud size={18}/></button>
-          <button onClick={()=>{ if(user){ setConfirmConfig({ message: '確定要登出嗎？', onConfirm: () => { signOut(auth); setConfirmConfig(null); }}); } else signInWithPopup(auth, provider); }} className={`p-2 transition-transform hover:scale-110 ${user ? 'text-orange-500' : 'text-slate-300'}`}>{user ? <LogOut size={18}/> : <User size={18}/>}</button>
+          {/* [修正] 右上角維持登入狀態顯示 */}
+          <button onClick={()=>{ if(user){ setConfirmConfig({ message: '確定要登出嗎？', onConfirm: () => { signOut(auth); setConfirmConfig(null); }}); } else signInWithPopup(auth, provider); }} className={`p-2 transition-transform hover:scale-110 ${user ? 'text-orange-500' : 'text-slate-300'}`}>
+            {user ? <LogOut size={18}/> : <User size={18}/>}
+          </button>
         </div>
       </header>
 
